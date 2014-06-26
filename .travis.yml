@@ -7,6 +7,11 @@ jdk:
   - openjdk6
 
 notifications:
+  email:
+    recipients:
+      - issues@flink.incubator.apache.org
+    on_success: always
+    on_failure: always
   webhooks:
     urls:
       - https://webhooks.gitter.im/e/d70a7e674cb9354c77b2
