@@ -32,11 +32,11 @@ import java.rmi.server.UnicastRemoteObject;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.UUID;
 
 import org.apache.flink.api.common.io.OutputFormat;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.operators.DataSink;
-import org.apache.flink.configuration.Configuration;
 
 /**
  * This class provides a counterpart implementation for the
@@ -63,9 +63,11 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 	 *            The port where the local colector is listening.
 	 * @param consumer
 	 *            The consumer instance.
+	 * @param rmiId 
+	 * 	          An ID to register the collector in the RMI registry.
 	 * @return
 	 */
-	public static <T> void createAndBind(Integer port, IRemoteCollectorConsumer<T> consumer) {
+	public static <T> void createAndBind(Integer port, IRemoteCollectorConsumer<T> consumer, String rmiId) {
 		RemoteCollectorImpl<T> collectorInstance = null;
 
 		try {
@@ -77,7 +79,7 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 		Registry registry;
 		try {
 			registry = LocateRegistry.createRegistry(port);
-			registry.bind(RemoteCollectorOutputFormat.ID, collectorInstance);
+			registry.bind(rmiId, collectorInstance);
 		} catch (RemoteException e) {
 			e.printStackTrace();
 		} catch (AlreadyBoundException e) {
@@ -127,16 +129,14 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 			e.printStackTrace();
 		}
 
+		// create an ID for this output format instance
+		String rmiId = String.format("%s-%s", RemoteCollectorOutputFormat.class.getName(), UUID.randomUUID());
+		
 		// create the local listening object and bind it to the RMI registry
-		RemoteCollectorImpl.createAndBind(randomPort, consumer);
+		RemoteCollectorImpl.createAndBind(randomPort, consumer, rmiId);
 
 		// create and configure the output format
-		OutputFormat<T> remoteCollectorOutputFormat = new RemoteCollectorOutputFormat<T>();
-
-		Configuration remoteCollectorConfiguration = new Configuration();
-		remoteCollectorConfiguration.setString(RemoteCollectorOutputFormat.REMOTE, ip);
-		remoteCollectorConfiguration.setInteger(RemoteCollectorOutputFormat.PORT, randomPort);
-		remoteCollectorOutputFormat.configure(remoteCollectorConfiguration);
+		OutputFormat<T> remoteCollectorOutputFormat = new RemoteCollectorOutputFormat<T>(ip, randomPort, rmiId);
 
 		// create sink
 		return source.output(remoteCollectorOutputFormat);
