@@ -1,5 +1,3 @@
-package org.apache.flink.api.java.io;
-
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -18,12 +16,12 @@ package org.apache.flink.api.java.io;
  * limitations under the License.
  */
 
-import java.io.IOException;
+package org.apache.flink.api.java.io;
+
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
-import java.net.SocketException;
 import java.rmi.AlreadyBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
@@ -43,16 +41,17 @@ import org.apache.flink.api.java.operators.DataSink;
  * {@link RemoteCollectorOutputFormat}.
  */
 
-public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemoteCollector<T>{
+public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements
+		RemoteCollector<T> {
 
 	private static final long serialVersionUID = 1L;
 
 	/**
-	 * Instance of an implementation of a {@link IRemoteCollectorConsumer}. This
+	 * Instance of an implementation of a {@link RemoteCollectorConsumer}. This
 	 * instance will get the records passed.
 	 */
 
-	private IRemoteCollectorConsumer<T> consumer;
+	private RemoteCollectorConsumer<T> consumer;
 
 	/**
 	 * This factory method creates an instance of the
@@ -67,17 +66,14 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 	 * 	          An ID to register the collector in the RMI registry.
 	 * @return
 	 */
-	public static <T> void createAndBind(Integer port, IRemoteCollectorConsumer<T> consumer, String rmiId) {
+	public static <T> void createAndBind(Integer port, RemoteCollectorConsumer<T> consumer, String rmiId) {
 		RemoteCollectorImpl<T> collectorInstance = null;
 
 		try {
 			collectorInstance = new RemoteCollectorImpl<T>();
-		} catch (RemoteException e) {
-			e.printStackTrace();
-		}
 
-		Registry registry;
-		try {
+			Registry registry;
+
 			registry = LocateRegistry.createRegistry(port);
 			registry.bind(rmiId, collectorInstance);
 		} catch (RemoteException e) {
@@ -88,30 +84,35 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 
 		collectorInstance.setConsumer(consumer);
 	}
-	
+
 	/**
-	 * Writes a DataSet to a {@link IRemoteCollectorConsumer} through an
-	 * {@link IRemoteCollector} remotely called from the
+	 * Writes a DataSet to a {@link RemoteCollectorConsumer} through an
+	 * {@link RemoteCollector} remotely called from the
 	 * {@link RemoteCollectorOutputFormat}.<br/>
 	 * 
 	 * @return The DataSink that writes the DataSet.
 	 */
-	public static <T> DataSink<T> collectLocal(DataSet<T> source, IRemoteCollectorConsumer<T> consumer) {
+	public static <T> DataSink<T> collectLocal(DataSet<T> source,
+			RemoteCollectorConsumer<T> consumer) {
 		// if the RMI parameter was not set by the user make a "good guess"
 		String ip = System.getProperty("java.rmi.server.hostname");
 		if (ip == null) {
 			Enumeration<NetworkInterface> networkInterfaces = null;
 			try {
 				networkInterfaces = NetworkInterface.getNetworkInterfaces();
-			} catch (SocketException e) {
-				e.printStackTrace();
+			} catch (Throwable t) {
+				throw new RuntimeException(t);
 			}
 			while (networkInterfaces.hasMoreElements()) {
-				NetworkInterface networkInterface = (NetworkInterface) networkInterfaces.nextElement();
-				Enumeration<InetAddress> inetAddresses = networkInterface.getInetAddresses();
+				NetworkInterface networkInterface = (NetworkInterface) networkInterfaces
+						.nextElement();
+				Enumeration<InetAddress> inetAddresses = networkInterface
+						.getInetAddresses();
 				while (inetAddresses.hasMoreElements()) {
-					InetAddress inetAddress = (InetAddress) inetAddresses.nextElement();
-					if (!inetAddress.isLoopbackAddress() && inetAddress instanceof Inet4Address) {
+					InetAddress inetAddress = (InetAddress) inetAddresses
+							.nextElement();
+					if (!inetAddress.isLoopbackAddress()
+							&& inetAddress instanceof Inet4Address) {
 						ip = inetAddress.getHostAddress();
 						System.setProperty("java.rmi.server.hostname", ip);
 					}
@@ -125,8 +126,8 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 			ServerSocket tmp = new ServerSocket(0);
 			randomPort = tmp.getLocalPort();
 			tmp.close();
-		} catch (IOException e) {
-			e.printStackTrace();
+		} catch (Throwable t) {
+			throw new RuntimeException(t);
 		}
 
 		// create an ID for this output format instance
@@ -144,7 +145,7 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 
 	/**
 	 * Writes a DataSet to a local {@link Collection} through an
-	 * {@link IRemoteCollector} and a standard {@link IRemoteCollectorConsumer}
+	 * {@link RemoteCollector} and a standard {@link RemoteCollectorConsumer}
 	 * implementation remotely called from the
 	 * {@link RemoteCollectorOutputFormat}.<br/>
 	 * 
@@ -152,9 +153,11 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 	 * @param port
 	 * @param collection
 	 */
-	public static <T> void collectLocal(DataSet<T> source, Collection<T> collection) {
-		final Collection<T> synchronizedCollection = Collections.synchronizedCollection(collection);
-		collectLocal(source, new IRemoteCollectorConsumer<T>() {
+	public static <T> void collectLocal(DataSet<T> source,
+			Collection<T> collection) {
+		final Collection<T> synchronizedCollection = Collections
+				.synchronizedCollection(collection);
+		collectLocal(source, new RemoteCollectorConsumer<T>() {
 			@Override
 			public void collect(T element) {
 				synchronizedCollection.add(element);
@@ -164,6 +167,7 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 
 	/**
 	 * Necessary private default constructor.
+	 * 
 	 * @throws RemoteException
 	 */
 	private RemoteCollectorImpl() throws RemoteException {
@@ -179,12 +183,12 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements IRemo
 	}
 
 	@Override
-	public IRemoteCollectorConsumer<T> getConsumer() {
+	public RemoteCollectorConsumer<T> getConsumer() {
 		return this.consumer;
 	}
 
 	@Override
-	public void setConsumer(IRemoteCollectorConsumer<T> consumer) {
+	public void setConsumer(RemoteCollectorConsumer<T> consumer) {
 		this.consumer = consumer;
 	}
 }

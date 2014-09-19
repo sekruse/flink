@@ -25,7 +25,7 @@ import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.aggregation.Aggregations;
-import org.apache.flink.api.java.io.IRemoteCollectorConsumer;
+import org.apache.flink.api.java.io.RemoteCollectorConsumer;
 import org.apache.flink.api.java.io.RemoteCollectorImpl;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.util.Collector;
@@ -33,20 +33,28 @@ import org.apache.flink.util.Collector;
 /**
  * Implements the "WordCount" program that computes a simple word occurrence
  * histogram over some sample data and collects the results with an
- * implementation of a {@link IRemoteCollectorConsumer}.
+ * implementation of a {@link RemoteCollectorConsumer}.
  */
 @SuppressWarnings("serial")
 public class RemoteCollectorOutputFormatExample {
 
 	public static void main(String[] args) throws Exception {
 
-		// set up the execution environment
-		final ExecutionEnvironment env = ExecutionEnvironment.createRemoteEnvironment("localhost", 6124,
-				"/home/fabian/workspace/remotecollectortest/target/remotecollectorteset-0.7-incubating-SNAPSHOT.jar");
+		/**
+		 * We create a remote {@link ExecutionEnvironment} here, because this
+		 * OutputFormat is designed for use in a distributed setting. For local
+		 * use you should consider using the {@link LocalCollectionOutputFormat
+		 * <T>}.
+		 */
+		final ExecutionEnvironment env = ExecutionEnvironment
+				.createRemoteEnvironment("<remote>", 6124,
+						"/path/to/your/file.jar");
 
 		// get input data
-		DataSet<String> text = env.fromElements("To be, or not to be,--that is the question:--",
-				"Whether 'tis nobler in the mind to suffer", "The slings and arrows of outrageous fortune",
+		DataSet<String> text = env.fromElements(
+				"To be, or not to be,--that is the question:--",
+				"Whether 'tis nobler in the mind to suffer",
+				"The slings and arrows of outrageous fortune",
 				"Or to take arms against a sea of troubles,");
 
 		DataSet<Tuple2<String, Integer>> counts =
@@ -56,13 +64,14 @@ public class RemoteCollectorOutputFormatExample {
 				.groupBy(0).aggregate(Aggregations.SUM, 1);
 
 		// emit result
-		RemoteCollectorImpl.collectLocal(counts, new IRemoteCollectorConsumer<Tuple2<String, Integer>>() {
-			// user defined IRemoteCollectorConsumer
-			@Override
-			public void collect(Tuple2<String, Integer> element) {
-				System.out.println("word/occurrences:" + element);
-			}
-		});
+		RemoteCollectorImpl.collectLocal(counts,
+				new RemoteCollectorConsumer<Tuple2<String, Integer>>() {
+					// user defined IRemoteCollectorConsumer
+					@Override
+					public void collect(Tuple2<String, Integer> element) {
+						System.out.println("word/occurrences:" + element);
+					}
+				});
 
 		// local collection to store results in
 		Set<Tuple2<String, Integer>> collection = new HashSet<Tuple2<String, Integer>>();
@@ -85,7 +94,8 @@ public class RemoteCollectorOutputFormatExample {
 	 * splits it into multiple pairs in the form of "(word,1)" (Tuple2<String,
 	 * Integer>).
 	 */
-	public static final class LineSplitter implements FlatMapFunction<String, Tuple2<String, Integer>> {
+	public static final class LineSplitter implements
+			FlatMapFunction<String, Tuple2<String, Integer>> {
 
 		@Override
 		public void flatMap(String value, Collector<Tuple2<String, Integer>> out) {
