@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.flink.example.java.remotecollectoroutputformat;
+package org.apache.flink.examples.example.java.remotecollectoroutputformat;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -46,14 +46,8 @@ public class RemoteCollectorOutputFormatExample {
 		 * use you should consider using the {@link LocalCollectionOutputFormat
 		 * <T>}.
 		 */
-<<<<<<< HEAD:flink-examples/flink-java-examples/src/main/java/org/apache/flink/example/java/remotecollectoroutputformat/RemoteCollectorOutputFormatExample.java
-		final ExecutionEnvironment env = ExecutionEnvironment
-				.createRemoteEnvironment("<remote>", 6124,
-						"/path/to/your/file.jar");
-=======
 		final ExecutionEnvironment env = ExecutionEnvironment.createRemoteEnvironment("<remote>", 6124,
 				"/path/to/your/file.jar");
->>>>>>> ea46979... [FLINK-1134] fix indentation spaces and faulty package name:flink-examples/flink-java-examples/src/main/java/org/apache/flink/examples/example/java/remotecollectoroutputformat/RemoteCollectorOutputFormatExample.java
 
 		// get input data
 		DataSet<String> text = env.fromElements(

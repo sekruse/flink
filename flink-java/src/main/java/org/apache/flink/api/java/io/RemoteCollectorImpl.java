@@ -22,14 +22,19 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
+import java.rmi.AccessException;
 import java.rmi.AlreadyBoundException;
+import java.rmi.NotBoundException;
+import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.UUID;
 
 import org.apache.flink.api.common.io.OutputFormat;
@@ -198,8 +203,6 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements
 	public void setConsumer(RemoteCollectorConsumer<T> consumer) {
 		this.consumer = consumer;
 	}
-<<<<<<< HEAD
-=======
 
 	/**
 	 * This method unbinds and unexports all exposed {@link Remote} objects
@@ -218,5 +221,4 @@ public class RemoteCollectorImpl<T> extends UnicastRemoteObject implements
 
 		}
 	}
->>>>>>> ea46979... [FLINK-1134] fix indentation spaces and faulty package name
 }
