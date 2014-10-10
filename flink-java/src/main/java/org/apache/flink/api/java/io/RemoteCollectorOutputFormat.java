@@ -19,6 +19,7 @@
 package org.apache.flink.api.java.io;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.rmi.AccessException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
@@ -27,6 +28,8 @@ import java.rmi.registry.Registry;
 
 import org.apache.flink.api.common.io.OutputFormat;
 import org.apache.flink.configuration.Configuration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * An output format that sends results through JAVA RMI to an
@@ -38,8 +41,12 @@ import org.apache.flink.configuration.Configuration;
  */
 public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 
+	private static final int MAX_RETRIES = 3;
+
 	private static final long serialVersionUID = 1922744224032398102L;
 
+	private static final Logger LOG = LoggerFactory.getLogger(RemoteCollectorOutputFormat.class);
+	
 	/**
 	 * The reference of the {@link RemoteCollector} object
 	 */
@@ -121,26 +128,49 @@ public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 		}
 	}
 
-	@SuppressWarnings("unchecked")
 	@Override
 	public void open(int taskNumber, int numTasks) throws IOException {
+		obtainRemoteCollector();
+	}
+
+	@SuppressWarnings("unchecked")
+	private void obtainRemoteCollector() {
 		// get the remote's RMI Registry
-		try {
-			registry = LocateRegistry.getRegistry(this.remote, this.port);
-		} catch (RemoteException e) {
-			throw new IllegalStateException(e);
+		int numTries = 0;
+		this.registry = null;
+		while (this.registry == null) {
+			try {
+				numTries++;
+				registry = LocateRegistry.getRegistry(this.remote, this.port);
+			} catch (RemoteException e) {
+				if (numTries < MAX_RETRIES && e.getCause() != null && e.getCause() instanceof SocketTimeoutException) {
+					LOG.error("Could not obtain registry (attempt "+numTries+")");
+				} else {
+					throw new IllegalStateException(e);
+				}
+			}
 		}
 
 		// try to get an intance of an IRemoteCollector implementation
-		try {
-			this.remoteCollector = (RemoteCollector<T>) registry
-					.lookup(this.rmiId);
-		} catch (AccessException e) {
-			throw new IllegalStateException(e);
-		} catch (RemoteException e) {
-			throw new IllegalStateException(e);
-		} catch (NotBoundException e) {
-			throw new IllegalStateException(e);
+		numTries = 0;
+		this.remoteCollector = null;
+		while (this.remoteCollector == null) {
+			try {
+				numTries++;
+				this.remoteCollector = (RemoteCollector<T>) registry
+						.lookup(this.rmiId);
+			} catch (AccessException e) {
+				throw new IllegalStateException(e);
+			} catch (RemoteException e) {
+				if (numTries < MAX_RETRIES && e.getCause() != null && e.getCause() instanceof SocketTimeoutException) {
+					LOG.error("Could not obtain remote collector (attempt "+numTries+")");
+				} else {
+					throw new IllegalStateException(e);
+				}
+			} catch (NotBoundException e) {
+				throw new IllegalStateException(e);
+			}
+			
 		}
 	}
 
@@ -150,7 +180,26 @@ public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 	 */
 	@Override
 	public void writeRecord(T record) throws IOException {
-		remoteCollector.collect(record);
+		int numRetries = 0;
+		while (true) {
+			try {
+				numRetries = 0;
+				this.remoteCollector.collect(record);
+				break;
+			} catch (RemoteException e) {
+				if (numRetries < MAX_RETRIES && e.getCause() != null 
+						&& e.getCause() instanceof SocketTimeoutException) {
+					LOG.error("Failed to send " +record + " (attempt "+numRetries+")");
+					try {
+						Thread.sleep(100);
+					} catch (InterruptedException e1) {
+						LOG.error("Interrupted while waiting for sending retry.", e1);
+					}
+				} else {
+					throw new IllegalStateException(e);
+				}
+			}
+		}
 	}
 
 	/**
