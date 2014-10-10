@@ -32,21 +32,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * An output format that sends results through JAVA RMI to an
- * {@link RemoteCollector} implementation. The client has to provide an
- * implementation of {@link RemoteCollector} and has to write it's plan's output
- * into an instance of {@link RemoteCollectorOutputFormat}. Further in the
- * client's VM parameters -Djava.rmi.server.hostname should be set to the own IP
- * address.
+ * An output format that sends results through JAVA RMI to an {@link RemoteCollector} implementation. The client has to
+ * provide an implementation of {@link RemoteCollector} and has to write it's plan's output into an instance of
+ * {@link RemoteCollectorOutputFormat}. Further in the client's VM parameters -Djava.rmi.server.hostname should be set
+ * to the own IP address.
  */
 public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 
-	private static final int MAX_RETRIES = 3;
+	private static final int MAX_CONNECT_RETRIES = 3;
+
+	private static final int MAX_SEND_RETRIES = 20;
 
 	private static final long serialVersionUID = 1922744224032398102L;
 
 	private static final Logger LOG = LoggerFactory.getLogger(RemoteCollectorOutputFormat.class);
-	
+
 	/**
 	 * The reference of the {@link RemoteCollector} object
 	 */
@@ -74,9 +74,8 @@ public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 	private String rmiId;
 
 	/**
-	 * Create a new {@link RemoteCollectorOutputFormat} instance. The remote and
-	 * port for this output are by default localhost:8888 but can be configured
-	 * via a {@link Configuration} object.
+	 * Create a new {@link RemoteCollectorOutputFormat} instance. The remote and port for this output are by default
+	 * localhost:8888 but can be configured via a {@link Configuration} object.
 	 * 
 	 * @see RemoteCollectorOutputFormat#REMOTE
 	 * @see RemoteCollectorOutputFormat#PORT
@@ -86,8 +85,7 @@ public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 	}
 
 	/**
-	 * Creates a new {@link RemoteCollectorOutputFormat} instance for the
-	 * specified remote and port.
+	 * Creates a new {@link RemoteCollectorOutputFormat} instance for the specified remote and port.
 	 * 
 	 * @param rmiId
 	 */
@@ -96,7 +94,7 @@ public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 		this.remote = remote;
 		this.port = port;
 		this.rmiId = rmiId;
-		
+
 		if (this.remote == null) {
 			throw new IllegalStateException(String.format(
 					"No remote configured for %s.", this));
@@ -143,8 +141,9 @@ public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 				numTries++;
 				registry = LocateRegistry.getRegistry(this.remote, this.port);
 			} catch (RemoteException e) {
-				if (numTries < MAX_RETRIES && e.getCause() != null && e.getCause() instanceof SocketTimeoutException) {
-					LOG.error("Could not obtain registry (attempt "+numTries+")");
+				if (numTries <= MAX_CONNECT_RETRIES && e.getCause() != null
+						&& e.getCause() instanceof SocketTimeoutException) {
+					LOG.error("Could not obtain registry (attempt " + numTries + ")", e);
 				} else {
 					throw new IllegalStateException(e);
 				}
@@ -162,53 +161,79 @@ public class RemoteCollectorOutputFormat<T> implements OutputFormat<T> {
 			} catch (AccessException e) {
 				throw new IllegalStateException(e);
 			} catch (RemoteException e) {
-				if (numTries < MAX_RETRIES && e.getCause() != null && e.getCause() instanceof SocketTimeoutException) {
-					LOG.error("Could not obtain remote collector (attempt "+numTries+")");
+				if (numTries <= MAX_CONNECT_RETRIES && e.getCause() != null
+						&& e.getCause() instanceof SocketTimeoutException) {
+					LOG.error("Could not obtain remote collector (attempt " + numTries + ")", e);
 				} else {
 					throw new IllegalStateException(e);
 				}
 			} catch (NotBoundException e) {
 				throw new IllegalStateException(e);
 			}
-			
+
 		}
 	}
 
 	/**
-	 * This method forwards records simply to the remote's
-	 * {@link RemoteCollector} implementation
+	 * This method forwards records simply to the remote's {@link RemoteCollector} implementation
 	 */
 	@Override
 	public void writeRecord(T record) throws IOException {
-		int numRetries = 0;
+
+		int numSendTries = 0;
+		int numReconnectTries = 0;
+		
 		while (true) {
 			try {
-				numRetries = 0;
+				// Try to send record.
+				numSendTries++;
 				this.remoteCollector.collect(record);
+				// If no exception occurred, we are fine.
 				break;
+				
 			} catch (RemoteException e) {
-				if (numRetries < MAX_RETRIES && e.getCause() != null 
+				// On a timeout, retry the sending a few times. 
+				LOG.error("Failed to send " + record + " (attempt " + numSendTries + ")", e);
+				if (numSendTries <= MAX_SEND_RETRIES && e.getCause() != null
 						&& e.getCause() instanceof SocketTimeoutException) {
-					LOG.error("Failed to send " +record + " (attempt "+numRetries+")");
+					
+					LOG.info("Will retry to send {}.", record);
 					try {
 						Thread.sleep(100);
 					} catch (InterruptedException e1) {
 						LOG.error("Interrupted while waiting for sending retry.", e1);
 					}
+					
 				} else {
-					throw new IllegalStateException(e);
+					// On other problems or after sufficient send attempts, reconnect.
+					numReconnectTries++;
+					if (numReconnectTries > MAX_CONNECT_RETRIES) {
+						throw new RuntimeException(e);
+					}
+					LOG.info("Will try to reconnect.", record);
+					numSendTries = 0;
+					obtainRemoteCollector();
 				}
+
+			} catch (Exception e) {
+				// On other problems send attempts, reconnect.
+				LOG.error("Failed to send " + record + " (attempt " + numSendTries + ")", e);
+				numReconnectTries++;
+				if (numReconnectTries > MAX_CONNECT_RETRIES) {
+					throw new RuntimeException(e);
+				}
+				LOG.info("Will try to reconnect.", record);
+				obtainRemoteCollector();
+				numSendTries = 0;
 			}
 		}
 	}
 
 	/**
-	 * This method unbinds the reference of the implementation of
-	 * {@link RemoteCollector}.
+	 * This method unbinds the reference of the implementation of {@link RemoteCollector}.
 	 */
 	@Override
-	public void close() throws IOException {
-	}
+	public void close() throws IOException {}
 
 	@Override
 	public String toString() {
